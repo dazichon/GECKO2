@@ -4,15 +4,13 @@
 #include <Arduino.h>
 
 // --- Định nghĩa chân cắm (Pins) ---
-// Cảm biến QTR
-#define qtr1 36 
+// Cảm biến QTR (6 sensors D2-D7)
 #define qtr2 39
 #define qtr3 34
 #define qtr4 35
 #define qtr5 33
-#define qtr6 25
-#define qtr7 26
-#define qtr8 27
+#define qtr6 36
+#define qtr7 32
 
 // Encoder
 #define c1l 18
@@ -30,8 +28,7 @@
 #define BIN2 15
 #define PWMB 17
 
-#define STBY 32
-
+#define STBY 12
 // servo
 #define servo_pin 14
 

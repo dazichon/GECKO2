@@ -15,23 +15,23 @@ const char* ssid = "da";
 const char* password = "ducanh1110";
 
 WebServer server(80);
-MyServoControl gripper(servo_pin, 0, 0, 45);
+MyServoControl gripper(servo_pin, 0, 0, 53);
 
 // Biến điều khiển servo
 int servoAngle = 0; // Giá trị mặc định của slider
 
 // Biến điều khiển tốc độ
-int current_speed = 40;
-const int MIN_SPEED = 10;
-const int MAX_SPEED = 100;
+int current_speed = 45;
+const int MIN_SPEED = 15;
+const int MAX_SPEED = 105;
 
 // Khởi tạo QTR8A
 QTR8A_Handler myQTR;
-const uint8_t qtrPins[] = {36, 39, 34, 35, 33, 25, 26, 27};
-const uint8_t sensorCount = 8;
+const uint8_t qtrPins[] = {39, 34, 35, 33, 36, 32}; // 6 sensors D2-D7
+const uint8_t sensorCount = 6;
 
 // Khởi tạo PID cho dò line
-PID linePID(0.3, 0.0, 0.1, -50, 50); // Giảm Kp để giảm độ cua mạnh
+PID linePID(0.08, 0.0, 0.06, -70, 70); // Kp=0.15 (mượt), Kd=0.08 (ổn định)
 
 // Giao diện Web (HTML + CSS + JS cập nhật cảm biến)
 String getHTML() {
@@ -99,56 +99,55 @@ void disableWiFi() {
     esp_wifi_stop();     // đảm bảo radio dừng hẳn
     delay(200);          // chờ ADC2 ổn định
 }
-
-// Thuật toán dò line sử dụng PID
 void followLine() {
     static unsigned long lastTime = 0;
     unsigned long currentTime = millis();
-    float dt = (currentTime - lastTime) / 1000.0; // dt tính bằng giây
-    if (dt < 0.005) dt = 0.005; // Tránh dt quá nhỏ
+    
+    // 1. Cố định thời gian lấy mẫu 10ms để PID không bị nhiễu
+    if (currentTime - lastTime < 10) return;
+
+    float dt = (currentTime - lastTime) / 1000.0;
+
     lastTime = currentTime;
-
-    // Đọc vị trí line từ QTR8A (0-7000)
+    // 2. Lấy vị trí từ 6 cảm biến (phạm vi 0-5000, center = 2500)
     uint16_t position = myQTR.getPosition();
-    
-    // Hiển thị thông số QTR lên Serial Monitor
-    Serial.print("QTR Position: ");
-    Serial.print(position);
-    Serial.print(" | Sensors: ");
-    for (int i = 0; i < sensorCount; i++) {
-        Serial.print(myQTR.getSensorValue(i));
-        Serial.print(" ");
+
+    // Nếu mất vạch, giữ vị trí cuối cùng hợp lệ để tránh quay gắt
+    static uint16_t lastValidPosition = 2500;
+    if (position == 0 || position == 5000) {
+        position = lastValidPosition;
+    } else {
+        lastValidPosition = position;
     }
-    Serial.println();
-    
-    // Tính correction từ PID (setpoint=3500 đã được set trong setup)
-    // Position từ readLineBlack(): 0=trái, 3500=giữa, 7000=phải
-    float correction = linePID.compute(position, dt);
-    
-    // Tính tốc độ motor dựa trên setup bánh xe của bạn
-    // Bánh phải lag hơn bánh trái ~10.35%, nên cần cân bằng compensation
-    int baseSpeed = current_speed;
-    const float wheelCompensation = 1.1035; // Compensation cho bánh phải
-    
-    // Công thức: 
-    // - Khi error > 0 (line lệch phải): giảm bánh trái hoặc tăng bánh phải
-    // - Khi error < 0 (line lệch trái): tăng bánh trái hoặc giảm bánh phải
-    int leftSpeed = baseSpeed - correction;  
-    int rightSpeed = (baseSpeed * wheelCompensation) + correction;
-    
-    // Giới hạn tốc độ
-    leftSpeed = constrain(leftSpeed, -60, 60);
-    rightSpeed = constrain(rightSpeed, -60, 60);
 
-    Serial.print(correction);
+    // 3. Tính toán PID thẳng đều, không có xử lý cua gắt
+    float correctionRaw = linePID.compute(position, dt);
+    static float correctionFiltered = 0;
+    correctionFiltered = correctionFiltered * 0.85 + correctionRaw * 0.15;
+    int correction = (int)correctionFiltered;
 
-    Serial.print(leftSpeed);
-
-    Serial.println(rightSpeed);
+    // Thêm offset để cân bằng motor (lệch trái thì motor phải yếu hơn)
+    const int motorBalance = 3;  // Tăng tốc độ motor phải thêm 3
     
-    // Điều khiển motor
+    int leftSpeed = current_speed + correction;
+    int rightSpeed = current_speed - correction + motorBalance;
+
+    // Không quay lùi; chỉ cho phép điều chỉnh tốc độ hai bánh để giữ thẳng
+    leftSpeed = constrain(leftSpeed, 0, 125);
+    rightSpeed = constrain(rightSpeed, 0, 125);
+
     controlMotor(leftSpeed, rightSpeed);
 
+    // In giá trị cảm biến
+    Serial.print("Sensors: ");
+    for (uint8_t i = 0; i < sensorCount; i++) {
+        Serial.print("S"); Serial.print(i); Serial.print(": ");
+        Serial.print(myQTR.getSensorValue(i));
+        if (i < sensorCount - 1) Serial.print(" | ");
+        Serial.print("\n");
+    }
+
+    
 }
 void setup() {
     Serial.begin(115200);
@@ -162,8 +161,8 @@ void setup() {
     myQTR.calibrate(2); // Dùng LED chân 2 báo hiệu khi calibrate
 
     // SET SETPOINT CHO PID
-    linePID.setSetpoint(3500); // Line ở giữa = 3500
-    linePID.setDeadzone(20);   // Tăng deadzone để giảm phản ứng với lỗi nhỏ
+    linePID.setSetpoint(2500); // Line ở giữa = 2500 cho 6 mắt
+    linePID.setDeadzone(25);   // Deadzone 25 để lọc nhiễu nhưng vẫn phản hồi tốt
 
     // Phát WiFi
     WiFi.softAP(ssid, password);
@@ -183,22 +182,22 @@ void setup() {
     });
 
     server.on("/left", []() {
-        controlMotor(-current_speed, current_speed+8);
+        controlMotor(-current_speed, current_speed+12);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/right", []() {
-        controlMotor(current_speed, -current_speed-8);
+        controlMotor(current_speed, -current_speed-12);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/forward", []() {
-        controlMotor(current_speed, current_speed+8);
+        controlMotor(current_speed, current_speed+12);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/backward", []() {
-        controlMotor(-current_speed, -current_speed-8);
+        controlMotor(-current_speed, -current_speed-12);
         server.send(200, "text/plain", "OK");
     });
 
@@ -246,6 +245,7 @@ void setup() {
     });
 
     server.begin();
+    //disableWiFi(); // Tắt WiFi ngay sau khi khởi động để vào chế độ dò line luôn, không cần phải đợi lệnh từ web. Vì nếu đã tắt WiFi thì cũng không còn cách nào khác để điều khiển nữa, chỉ có thể dò line tự động thôi.
 }
 
 void loop() {
@@ -253,6 +253,8 @@ void loop() {
     
     // Nếu WiFi đã tắt, chuyển sang chế độ dò line
     if (WiFi.getMode() == WIFI_OFF) {
-        followLine();
+       followLine();
     }
+    
+    //followLine(); // Luôn dò line, dù có WiFi hay không. Nếu WiFi tắt thì vẫn dò line bình thường, chỉ là không nhận lệnh từ web nữa.
 }

@@ -21,6 +21,8 @@ class QTR8A_Handler {
     static const uint8_t MAX_SENSORS = 8;
     uint16_t _sensorValues[MAX_SENSORS];
     uint8_t _sensorCount;
+    static const int VAL_WHITE = 3200;  // Trắng (giảm để nhạy hơn)
+    static const int VAL_BLACK = 4000;   // Đen
 };
 
 #endif
