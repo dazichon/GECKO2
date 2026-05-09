@@ -15,7 +15,7 @@ const char* ssid = "da";
 const char* password = "ducanh1110";
 
 WebServer server(80);
-MyServoControl gripper(servo_pin, 0, 0, 53);
+MyServoControl gripper(servo_pin, 0, 0, 60);
 
 // Biến điều khiển servo
 int servoAngle = 0; // Giá trị mặc định của slider
@@ -182,22 +182,22 @@ void setup() {
     });
 
     server.on("/left", []() {
-        controlMotor(-current_speed, current_speed+12);
+        controlMotor(-current_speed, current_speed*2);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/right", []() {
-        controlMotor(current_speed, -current_speed-12);
+        controlMotor(current_speed, -current_speed*2);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/forward", []() {
-        controlMotor(current_speed, current_speed+12);
+        controlMotor(current_speed, current_speed*2);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/backward", []() {
-        controlMotor(-current_speed, -current_speed-12);
+        controlMotor(-current_speed, -current_speed*2);
         server.send(200, "text/plain", "OK");
     });
 
