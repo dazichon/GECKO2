@@ -22,8 +22,14 @@ int servoAngle = 0; // Giá trị mặc định của slider
 
 // Biến điều khiển tốc độ
 int current_speed = 50;
+int current_speed_left = 50;
+int current_speed_right = 50;
 const int MIN_SPEED = 10;
-const int MAX_SPEED = 150;
+const int MAX_SPEED = 200;
+
+void updateAverageSpeed() {
+    current_speed = (current_speed_left + current_speed_right) / 2;
+}
 
 // Khởi tạo QTR8A
 QTR8A_Handler myQTR;
@@ -48,13 +54,16 @@ String getHTML() {
     html += "</style></head><body>";
     html += "<div class='panel'><center><h1>Robocon Control</h1>";
 
-    // Hiển thị và điều khiển tốc độ
-    html += "<div class='control-row'>";
-    html += "<div style='color: #f1c40f; font-weight: bold; margin: 10px 0;'>Tốc độ: <span id='speed'>30</span>/100</div>";
+    // Hiển thị và điều khiển tốc độ từng bánh
+    html += "<div class='control-row' style='flex-direction:column; align-items:center;'>";
+    html += "<div style='color: #f1c40f; font-weight: bold; margin: 10px 0;'>Tốc độ trái: <span id='speedLeft'>" + String(current_speed_left) + "</span>/" + String(MAX_SPEED) + "</div>";
+    html += "<div style='color: #f1c40f; font-weight: bold; margin: 10px 0;'>Tốc độ phải: <span id='speedRight'>" + String(current_speed_right) + "</span>/" + String(MAX_SPEED) + "</div>";
     html += "</div>";
     html += "<div class='control-row'>";
-    html += "<button type='button' onclick='sendCommand(\"/speed_down\")'><b>-</b></button>";
-    html += "<button type='button' onclick='sendCommand(\"/speed_up\")'><b>+</b></button>";
+    html += "<button type='button' onclick='sendCommand(\"/speed_down_left\")'>L-</button>";
+    html += "<button type='button' onclick='sendCommand(\"/speed_up_left\")'>L+</button>";
+    html += "<button type='button' onclick='sendCommand(\"/speed_down_right\")'>R-</button>";
+    html += "<button type='button' onclick='sendCommand(\"/speed_up_right\")'>R+</button>";
     html += "</div>";
 
     // Giao diện điều khiển kiểu nhấn giữ
@@ -85,7 +94,8 @@ String getHTML() {
     html += "function updateServo(value) { document.getElementById('servoAngle').innerText = value; fetch('/servo_angle?value=' + value).catch(() => {}); }";
     html += "setInterval(function() {";
     html += "  fetch('/data').then(response => response.json()).then(data => {";
-    html += "    document.getElementById('speed').innerText = data.speed;";
+    html += "    document.getElementById('speedLeft').innerText = data.speed_left;";
+    html += "    document.getElementById('speedRight').innerText = data.speed_right;";
     html += "  }).catch(() => {});";
     html += "}, 200);"; // Cập nhật mỗi 200ms
     html += "</script>";
@@ -187,28 +197,30 @@ void setup() {
     // Endpoint trả về dữ liệu JSON
         server.on("/data", []() {
 
-        String json = "{\"speed\":" + String(current_speed) + "}";
+        String json = "{\"speed_left\":" + String(current_speed_left)
+                      + ",\"speed_right\":" + String(current_speed_right)
+                      + ",\"speed_avg\":" + String(current_speed) + "}";
 
         server.send(200, "application/json", json);
     });
 
     server.on("/left", []() {
-        controlMotor(-current_speed, current_speed+20);
+        controlMotor(-current_speed_left, current_speed_right);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/right", []() {
-        controlMotor(current_speed, -current_speed-23);
+        controlMotor(current_speed_left, -current_speed_right);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/forward", []() {
-        controlMotor(current_speed, current_speed+23);
+        controlMotor(current_speed_left, current_speed_right);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/backward", []() {
-        controlMotor(-current_speed, -current_speed-27);
+        controlMotor(-current_speed_left, -current_speed_right);
         server.send(200, "text/plain", "OK");
     });
 
@@ -234,19 +246,66 @@ void setup() {
         server.send(200, "text/plain", "OK");
     });
 
-    server.on("/speed_up", []() {
-        if (current_speed < MAX_SPEED) {
-            current_speed += 5;
-            if (current_speed > MAX_SPEED) current_speed = MAX_SPEED;
+    server.on("/speed_up_left", []() {
+        if (current_speed_left < MAX_SPEED) {
+            current_speed_left += 1;
+            if (current_speed_left > MAX_SPEED) current_speed_left = MAX_SPEED;
+            updateAverageSpeed();
         }
+        server.send(200, "text/plain", String(current_speed_left));
+    });
+
+    server.on("/speed_down_left", []() {
+        if (current_speed_left > MIN_SPEED) {
+            current_speed_left -= 1;
+            if (current_speed_left < MIN_SPEED) current_speed_left = MIN_SPEED;
+            updateAverageSpeed();
+        }
+        server.send(200, "text/plain", String(current_speed_left));
+    });
+
+    server.on("/speed_up_right", []() {
+        if (current_speed_right < MAX_SPEED) {
+            current_speed_right += 1;
+            if (current_speed_right > MAX_SPEED) current_speed_right = MAX_SPEED;
+            updateAverageSpeed();
+        }
+        server.send(200, "text/plain", String(current_speed_right));
+    });
+
+    server.on("/speed_down_right", []() {
+        if (current_speed_right > MIN_SPEED) {
+            current_speed_right -= 1;
+            if (current_speed_right < MIN_SPEED) current_speed_right = MIN_SPEED;
+            updateAverageSpeed();
+        }
+        server.send(200, "text/plain", String(current_speed_right));
+    });
+
+    // Backward-compatible endpoints that adjust both motors together
+    server.on("/speed_up", []() {
+        if (current_speed_left < MAX_SPEED) {
+            current_speed_left += 5;
+            if (current_speed_left > MAX_SPEED) current_speed_left = MAX_SPEED;
+        }
+        if (current_speed_right < MAX_SPEED) {
+            current_speed_right += 5;
+            if (current_speed_right > MAX_SPEED) current_speed_right = MAX_SPEED;
+        }
+        updateAverageSpeed();
         server.send(200, "text/plain", String(current_speed));
     });
 
     server.on("/speed_down", []() {
-        if (current_speed > MIN_SPEED) {
-            current_speed -= 5;
-            if (current_speed < MIN_SPEED) current_speed = MIN_SPEED;
+        if (current_speed_left > MIN_SPEED) {
+            current_speed_left -= 5;
+            if (current_speed_left < MIN_SPEED) current_speed_left = MIN_SPEED;
         }
+        if (current_speed_right > MIN_SPEED) {
+            current_speed_right -= 5;
+            if (current_speed_right < MIN_SPEED) current_speed_right = MIN_SPEED;
+        }
+        updateAverageSpeed();
         server.send(200, "text/plain", String(current_speed));
     });
 
