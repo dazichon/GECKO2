@@ -21,9 +21,9 @@ MyServoControl gripper(servo_pin, 0, 0, 60);
 int servoAngle = 0; // Giá trị mặc định của slider
 
 // Biến điều khiển tốc độ
-int current_speed = 45;
-const int MIN_SPEED = 15;
-const int MAX_SPEED = 105;
+int current_speed = 50;
+const int MIN_SPEED = 10;
+const int MAX_SPEED = 150;
 
 // Khởi tạo QTR8A
 QTR8A_Handler myQTR;
@@ -139,13 +139,24 @@ void followLine() {
     controlMotor(leftSpeed, rightSpeed);
 
     // In giá trị cảm biến
-    Serial.print("Sensors: ");
-    for (uint8_t i = 0; i < sensorCount; i++) {
-        Serial.print("S"); Serial.print(i); Serial.print(": ");
-        Serial.print(myQTR.getSensorValue(i));
-        if (i < sensorCount - 1) Serial.print(" | ");
-        Serial.print("\n");
+    Serial.print(position);
+
+for (uint8_t i = 0; i < sensorCount; i++) {
+    Serial.print("S");
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.print(myQTR.getSensorValue(i));
+
+    // Nếu chưa đủ 6 sensor và chưa phải sensor cuối
+    if ((i + 1) % 6 != 0 && i < sensorCount - 1) {
+        Serial.print(" | ");
     }
+
+    // Xuống dòng sau mỗi 6 sensor hoặc sensor cuối cùng
+    if ((i + 1) % 6 == 0 || i == sensorCount - 1) {
+        Serial.println();
+    }
+}
 
     
 }
@@ -182,22 +193,22 @@ void setup() {
     });
 
     server.on("/left", []() {
-        controlMotor(-current_speed, current_speed*2);
+        controlMotor(-current_speed, current_speed+20);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/right", []() {
-        controlMotor(current_speed, -current_speed*2);
+        controlMotor(current_speed, -current_speed-23);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/forward", []() {
-        controlMotor(current_speed, current_speed*2);
+        controlMotor(current_speed, current_speed+23);
         server.send(200, "text/plain", "OK");
     });
 
     server.on("/backward", []() {
-        controlMotor(-current_speed, -current_speed*2);
+        controlMotor(-current_speed, -current_speed-27);
         server.send(200, "text/plain", "OK");
     });
 
