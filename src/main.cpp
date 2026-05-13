@@ -232,7 +232,7 @@ void followLine()
         }
 
         // tới lần thứ 3 mới rẽ trái
-        if (lostLineCount >= 1)
+        if (lostLineCount >= 2)
         {
 
             controlMotor(-60, 90);
@@ -251,18 +251,7 @@ void followLine()
         wasLostLine = false;
 
         lastValidPosition = position;
-
-        // Logic đặc biệt: Sau cua trái đầu tiên, nếu thấy 3 mắt trái (0,1,2) cùng đen thì tiến lên 1 tí
-        if (firstLeftTurnDone && !specialForwardDone)
-        {
-            if (myQTR.getSensorValue(0) > LINE_THRESHOLD && myQTR.getSensorValue(1) > LINE_THRESHOLD && myQTR.getSensorValue(2) > LINE_THRESHOLD)
-            {
-                controlMotor(current_speed_left, current_speed_right); // Tiến thẳng
-                delay(150); // Tiến lên 1 khoảng nhỏ (150ms)
-                specialForwardDone = true; // Đánh dấu chỉ thực hiện 1 lần duy nhất
-                Serial.println(">>> SPECIAL FORWARD AFTER FIRST TURN EXECUTED <<<");
-            }
-        }
+        
     }
 
     // 3. Tính toán PID thẳng đều, không có xử lý cua gắt
