@@ -14,7 +14,11 @@ PID::PID(float Kp_, float Ki_, float Kd_, float minOutput, float maxOutput) {
 void PID::setSetpoint(float sp) {
     setpoint = sp;
 }
-
+void PID::setTunings(float kp, float ki, float kd) {
+    Kp = kp;
+    Ki = ki;
+    Kd = kd;
+}
 // PID.cpp
 float PID::compute(float input, float dt) {
     float error = setpoint - input;

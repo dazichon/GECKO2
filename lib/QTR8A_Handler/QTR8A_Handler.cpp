@@ -13,7 +13,7 @@ void QTR8A_Handler::calibrate(uint8_t ledPin) {
     digitalWrite(ledPin, HIGH);
     Serial.println("--- DANG CAN CHINH (QUET QTR QUA VACH DEN) ---");
     
-    for (uint16_t i = 0; i < 400; i++) {
+    for (uint16_t i = 0; i < 200; i++) {
         _qtr.calibrate();
     }
     
