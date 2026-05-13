@@ -12,7 +12,7 @@ class QTR8A_Handler {
     // Hàm thực hiện cân chỉnh
     void calibrate(uint8_t ledPin = 2);
     // Đọc giá trị vị trí và mảng giá trị cảm biến (Cho vạch trắng trên nền đen)
-    uint16_t getPosition();
+    uint16_t getPosition(bool inverted = false);
     // Lấy giá trị từng mắt đã lọc nhiễu
     uint16_t getSensorValue(uint8_t index);
 

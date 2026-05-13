@@ -20,7 +20,7 @@ void QTR8A_Handler::calibrate(uint8_t ledPin) {
     digitalWrite(ledPin, LOW);
     Serial.println("Can chinh xong!");
 }
-uint16_t QTR8A_Handler::getPosition() {
+uint16_t QTR8A_Handler::getPosition(bool inverted) {
     _qtr.read(_sensorValues); 
     uint32_t weightedSum = 0;
     uint16_t total = 0;
@@ -28,6 +28,7 @@ uint16_t QTR8A_Handler::getPosition() {
 
     for (uint8_t i = 0; i < _sensorCount; i++) {
         uint16_t val = getSensorValue(i); 
+        if (inverted) val = 1000 - val; // Nếu là mode line trắng, đảo logic: trắng=1000, đen=0
         weightedSum += (uint32_t)val * i * 1000;
         total += val;
     }

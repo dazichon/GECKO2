@@ -45,6 +45,8 @@ PID linePID(pidKp, pidKi, pidKd, -150, 150); // Kp, Ki, Kd
 bool followLineMode = false;
 bool invertedLine = false;
 int lostLineCount = 0;
+bool firstLeftTurnDone = false;
+bool specialForwardDone = false;
 bool wasLostLine = false;
 uint16_t lastValidPosition = 2500;
 const int LINE_THRESHOLD = 600;
@@ -148,47 +150,28 @@ void disableWiFi()
 }
 void updateLineColorMode()
 {
+    // Lấy giá trị cảm biến hiện tại (Black = 1000, White = 0)
+    int s0 = myQTR.getSensorValue(0);
+    int s5 = myQTR.getSensorValue(5);
+    int s2 = myQTR.getSensorValue(2);
+    int s3 = myQTR.getSensorValue(3);
 
-    int blackCount = 0;
-    int whiteCount = 0;
-
-    // đọc toàn bộ sensor
-    for (uint8_t i = 0; i < sensorCount; i++)
+    // 1. Nếu 2 mắt ngoài cùng (S0 và S5) cùng thấy đen -> Chuyển sang follow line trắng
+    if (s0 > LINE_THRESHOLD && s5 > LINE_THRESHOLD)
     {
-
-        int value = myQTR.getSensorValue(i);
-
-        if (value > LINE_THRESHOLD)
-        {
-            blackCount++;
-        }
-        else
-        {
-            whiteCount++;
-        }
-    }
-
-    // nền đen -> line trắng
-    if (blackCount >= 5)
-    {
-
         if (!invertedLine)
         {
             invertedLine = true;
-
-            Serial.println("LINE MODE: WHITE LINE");
+            Serial.println("DETECTED OUTER BLACK: SWITCH TO WHITE LINE MODE");
         }
     }
-
-    // nền trắng -> line đen
-    if (whiteCount >= 5)
+    // 2. Nếu thấy line đen ở các mắt giữa (S2 hoặc S3) -> Quay lại follow line đen
+    else if (s2 > LINE_THRESHOLD || s3 > LINE_THRESHOLD)
     {
-
         if (invertedLine)
         {
             invertedLine = false;
-
-            Serial.println("LINE MODE: BLACK LINE");
+            Serial.println("DETECTED CENTER BLACK: SWITCH TO BLACK LINE MODE");
         }
     }
 }
@@ -205,8 +188,8 @@ void followLine()
 
     lastTime = currentTime;
     // 2. Lấy vị trí từ 6 cảm biến (phạm vi 0-5000, center = 2500)
-    uint16_t position = myQTR.getPosition();
-    updateLineColorMode();
+    updateLineColorMode(); // Cập nhật trạng thái invertedLine trước
+    uint16_t position = myQTR.getPosition(invertedLine); // Sử dụng trạng thái invertedLine mới nhất
 
     bool lostLine = true;
 
@@ -257,6 +240,7 @@ void followLine()
 
             // reset bộ đếm
             lostLineCount = 0;
+            firstLeftTurnDone = true; // Đánh dấu đã xong đoạn cua trái đầu tiên
         }
 
         position = lastValidPosition;
@@ -267,6 +251,18 @@ void followLine()
         wasLostLine = false;
 
         lastValidPosition = position;
+
+        // Logic đặc biệt: Sau cua trái đầu tiên, nếu thấy 3 mắt trái (0,1,2) cùng đen thì tiến lên 1 tí
+        if (firstLeftTurnDone && !specialForwardDone)
+        {
+            if (myQTR.getSensorValue(0) > LINE_THRESHOLD && myQTR.getSensorValue(1) > LINE_THRESHOLD && myQTR.getSensorValue(2) > LINE_THRESHOLD)
+            {
+                controlMotor(current_speed_left, current_speed_right); // Tiến thẳng
+                delay(150); // Tiến lên 1 khoảng nhỏ (150ms)
+                specialForwardDone = true; // Đánh dấu chỉ thực hiện 1 lần duy nhất
+                Serial.println(">>> SPECIAL FORWARD AFTER FIRST TURN EXECUTED <<<");
+            }
+        }
     }
 
     // 3. Tính toán PID thẳng đều, không có xử lý cua gắt
@@ -352,6 +348,8 @@ void setup()
         stopMotor();
         lostLineCount = 0;
         wasLostLine = false;
+        firstLeftTurnDone = false; // Reset lại khi tắt/bật mode để có thể test lại
+        specialForwardDone = false;
         lastValidPosition = 2500;
 
         linePID.reset(); // Reset PID khi tắt chế độ dò line để tránh tích tụ lỗi cũ khi bật lại
@@ -374,6 +372,7 @@ void setup()
     linePID.setDeadzone(25);   // Deadzone 25 để lọc nhiễu nhưng vẫn phản hồi tốt
 
     // Phát WiFi
+    WiFi.mode(WIFI_AP);        // Đảm bảo ESP32 ở chế độ phát Access Point
     WiFi.softAP(ssid, password);
     Serial.println("WiFi Started!");
     Serial.print("IP Address: ");
@@ -386,7 +385,7 @@ void setup()
     // Endpoint trả về dữ liệu JSON
     server.on("/data", []()
               {
-    uint16_t pos = myQTR.getPosition(); // Cập nhật dữ liệu cảm biến mới nhất
+    uint16_t pos = myQTR.getPosition(invertedLine); // Cập nhật dữ liệu cảm biến mới nhất
     String json = "{\"speed_left\":" + String(current_speed_left)
         + ",\"speed_right\":" + String(current_speed_right)
         + ",\"speed_avg\":" + String(current_speed)
