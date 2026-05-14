@@ -52,8 +52,8 @@ uint16_t QTR8A_Handler::getSensorValue(uint8_t index) {
     int mappedValue = map(_sensorValues[index], VAL_WHITE, VAL_BLACK, 0, 1000);
     // Giới hạn để không bị quá 1000 hoặc nhỏ hơn 0
     mappedValue = constrain(mappedValue, 0, 1000);
-    
-    if (index == 0 && mappedValue < 500) {
+    // Làm tròn xuống 0 nếu giá trị nhỏ (dưới 300)
+    if (mappedValue < 400) {
         mappedValue = 0;
     }
     return (uint16_t)mappedValue;

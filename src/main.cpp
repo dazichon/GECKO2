@@ -38,9 +38,9 @@ const uint8_t qtrPins[] = {39, 34, 35, 33, 36, 32}; // 6 sensors D2-D7
 const uint8_t sensorCount = 6;
 
 // Khởi tạo PID cho dò line
-float pidKp = 0.13;
+float pidKp = 0.57;
 float pidKi = 0.0;
-float pidKd = 0.095;
+float pidKd = 0.091;
 PID linePID(pidKp, pidKi, pidKd, -150, 150); // Kp, Ki, Kd
 bool followLineMode = false;
 bool invertedLine = false;
@@ -232,15 +232,19 @@ void followLine()
         }
 
         // tới lần thứ 3 mới rẽ trái
-        if (lostLineCount >= 2)
+        // if(lostLineCount =)
+        // {
+        //     controlMotor(90, -150);
+        //     delay(4);
+        //     return;
+        // }
+        if (lostLineCount == 2)
         {
-
             controlMotor(-60, 90);
-            delay(40);
+            delay(4);
 
-            // reset bộ đếm
-            lostLineCount = 0;
             firstLeftTurnDone = true; // Đánh dấu đã xong đoạn cua trái đầu tiên
+            return;
         }
 
         position = lastValidPosition;
