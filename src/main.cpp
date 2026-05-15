@@ -27,6 +27,11 @@ int current_speed_right = 96;
 const int MIN_SPEED = 10;
 const int MAX_SPEED = 200;
 
+// Biến điều khiển tốc độ dò line
+int lineFollowSpeed = 60;  // Tốc độ riêng cho dò line
+unsigned long lineFollowStartTime = 0;  // Thời điểm bắt đầu dò line
+bool speedIncreased = false;  // Đã tăng tốc độ chưa
+
 void updateAverageSpeed()
 {
     current_speed = (current_speed_left + current_speed_right) / 2;
@@ -38,9 +43,9 @@ const uint8_t qtrPins[] = {39, 34, 35, 33, 36, 32}; // 6 sensors D2-D7
 const uint8_t sensorCount = 6;
 
 // Khởi tạo PID cho dò line
-float pidKp = 0.57;
-float pidKi = 0.0;
-float pidKd = 0.091;
+float pidKp = 0.585;
+float pidKi = 0.001;
+float pidKd = 0.08;
 PID linePID(pidKp, pidKi, pidKd, -150, 150); // Kp, Ki, Kd
 bool followLineMode = false;
 bool invertedLine = false;
@@ -48,6 +53,8 @@ int lostLineCount = 0;
 bool firstLeftTurnDone = false;
 bool specialForwardDone = false;
 bool wasLostLine = false;
+bool afterLeftTurn = false;
+unsigned long leftTurnFinishTime = 0;
 uint16_t lastValidPosition = 2500;
 const int LINE_THRESHOLD = 600;
 
@@ -56,71 +63,130 @@ String getHTML()
 {
     String html = "<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'>";
     html += "<style>";
-    html += "html, body { margin:0; padding:0; font-family: Arial, sans-serif; background:#111; color:#eee; user-select:none; -webkit-user-select:none; -ms-user-select:none; }";
-    html += "body { min-height:100vh; display:flex; align-items:center; justify-content:center; }";
-    html += "button { width: 100px; height: 45px; margin: 8px; font-size: 18px; border-radius: 12px; border: none; background: #3498db; color: white; cursor: pointer; outline: none; user-select:none; -webkit-user-select:none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }";
+    html += "html, body { margin:0; padding:0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #0f1419 0%, #1a1f2e 100%); color:#e0e0e0; user-select:none; -webkit-user-select:none; -ms-user-select:none; }";
+    html += "body { min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding-top:20px; }";
+    html += "button { width: 100px; height: 45px; margin: 6px; font-size: 14px; font-weight:600; border-radius: 8px; border: none; background: linear-gradient(135deg, #3498db, #2980b9); color: white; cursor: pointer; outline: none; user-select:none; -webkit-user-select:none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; box-shadow: 0 2px 8px rgba(0,0,0,0.3); transition: all 0.2s; }";
+    html += "button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4); }";
     html += "button:active { transform: scale(0.98); }";
-    html += ".stop { background: #e74c3c; }";
-    html += ".gripper { background: #2ecc71; width: 220px; }";
-    html += ".control-row { display:flex; justify-content:center; align-items:center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }";
-    html += ".panel { text-align:center; width: 100%; max-width: 420px; padding: 20px; box-sizing:border-box; }";
+    html += ".stop { background: linear-gradient(135deg, #e74c3c, #c0392b); }";
+    html += ".stop:hover { box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4); }";
+    html += ".gripper { background: linear-gradient(135deg, #2ecc71, #27ae60); width: 100%; }";
+    html += ".gripper:hover { box-shadow: 0 4px 12px rgba(46, 204, 113, 0.4); }";
+    html += ".control-row { display:flex; justify-content:center; align-items:center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }";
+    html += ".panel { text-align:center; width: 100%; max-width: 500px; padding: 25px; box-sizing:border-box; background: rgba(30, 35, 50, 0.8); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); }";
+    html += "h1 { margin: 0 0 20px 0; color: #3498db; font-size: 28px; font-weight: 700; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }";
+    html += ".section-title { color: #2ecc71; font-weight: 700; margin: 16px 0 12px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid rgba(46, 204, 113, 0.3); padding-bottom: 8px; }";
+    html += ".info-display { background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; margin: 8px 0; border-left: 3px solid #3498db; }";
+    html += ".info-label { color: #bdc3c7; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }";
+    html += ".info-value { color: #ecf0f1; font-size: 16px; font-weight: 700; font-family: 'Courier New', monospace; }";
+    html += ".pid-control { background: rgba(0,0,0,0.2); padding: 14px; border-radius: 8px; margin: 10px 0; border: 1px solid rgba(46, 204, 113, 0.2); }";
+    html += ".slider-label { display: flex; justify-content: space-between; align-items: center; margin: 10px 0 6px 0; font-size: 13px; font-weight: 600; }";
+    html += ".slider-label-name { color: #ecf0f1; }";
+    html += ".slider-value { color: #2ecc71; font-family: 'Courier New', monospace; font-size: 14px; }";
+    html += "input[type='range'] { width: 100%; height: 5px; border-radius: 3px; background: linear-gradient(to right, #34495e, #7f8c8d); outline: none; -webkit-appearance: none; appearance: none; }";
+    html += "input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #3498db, #2980b9); cursor: pointer; box-shadow: 0 2px 6px rgba(52, 152, 219, 0.5); transition: all 0.2s; }";
+    html += "input[type='range']::-webkit-slider-thumb:hover { width: 22px; height: 22px; box-shadow: 0 2px 12px rgba(52, 152, 219, 0.8); }";
+    html += "input[type='range']::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #3498db, #2980b9); cursor: pointer; border: none; box-shadow: 0 2px 6px rgba(52, 152, 219, 0.5); transition: all 0.2s; }";
     html += "</style></head><body>";
-    html += "<div class='panel'><center><h1>Robocon Control</h1>";
+    html += "<div class='panel'>";
+    html += "<h1>🤖 ROBOCON CONTROL</h1>";
 
-    // Hiển thị và điều khiển tốc độ từng bánh
-    html += "<div class='control-row' style='flex-direction:column; align-items:center;'>";
-    html += "<div style='color: #f1c40f; font-weight: bold; margin: 10px 0;'>Tốc độ trái: <span id='speedLeft'>" + String(current_speed_left) + "</span>/" + String(MAX_SPEED) + "</div>";
-    html += "<div style='color: #f1c40f; font-weight: bold; margin: 10px 0;'>Tốc độ phải: <span id='speedRight'>" + String(current_speed_right) + "</span>/" + String(MAX_SPEED) + "</div>";
+    // MOVEMENT CONTROL
+    html += "<div class='section-title'>Movement Control</div>";
+    html += "<div class='control-row'>";
+    html += "<button type='button' onpointerdown='handlePress(\"/forward\", event)' onpointerup='handleRelease(event)' onpointercancel='handleRelease(event)' onpointerleave='handleRelease(event)'>⬆ UP</button>";
     html += "</div>";
     html += "<div class='control-row'>";
-    html += "<button type='button' onclick='sendCommand(\"/speed_down_left\")'>L-</button>";
-    html += "<button type='button' onclick='sendCommand(\"/speed_up_left\")'>L+</button>";
-    html += "<button type='button' onclick='sendCommand(\"/speed_down_right\")'>R-</button>";
-    html += "<button type='button' onclick='sendCommand(\"/speed_up_right\")'>R+</button>";
+    html += "<button type='button' onpointerdown='handlePress(\"/left\", event)' onpointerup='handleRelease(event)' onpointercancel='handleRelease(event)' onpointerleave='handleRelease(event)'>⬅ LEFT</button>";
+    html += "<button type='button' class='stop' onclick='sendCommand(\"/stop\")'>⏹ STOP</button>";
+    html += "<button type='button' onpointerdown='handlePress(\"/right\", event)' onpointerup='handleRelease(event)' onpointercancel='handleRelease(event)' onpointerleave='handleRelease(event)'>RIGHT ➡</button>";
+    html += "</div>";
+    html += "<div class='control-row'>";
+    html += "<button type='button' onpointerdown='handlePress(\"/backward\", event)' onpointerup='handleRelease(event)' onpointercancel='handleRelease(event)' onpointerleave='handleRelease(event)'>⬇ DOWN</button>";
     html += "</div>";
 
-    // Giao diện điều khiển kiểu nhấn giữ
-    html += "<div class='control-row'>";
-    html += "<button type='button' onpointerdown='handlePress(\"/forward\", event)' onpointerup='handleRelease(event)' onpointercancel='handleRelease(event)' onpointerleave='handleRelease(event)'>Tien</button>";
+    // SPEED CONTROL
+    html += "<div class='section-title'>Speed Control</div>";
+    html += "<div class='info-display'>";
+    html += "<div class='info-label'>Left Motor</div>";
+    html += "<div class='info-value'><span id='speedLeft'>" + String(current_speed_left) + "</span>/" + String(MAX_SPEED) + " RPM</div>";
     html += "</div>";
     html += "<div class='control-row'>";
-    html += "<button type='button' onpointerdown='handlePress(\"/left\", event)' onpointerup='handleRelease(event)' onpointercancel='handleRelease(event)' onpointerleave='handleRelease(event)'>Trai</button>";
-    html += "<button type='button' class='stop' onclick='sendCommand(\"/stop\")'>STOP</button>";
-    html += "<button type='button' onpointerdown='handlePress(\"/right\", event)' onpointerup='handleRelease(event)' onpointercancel='handleRelease(event)' onpointerleave='handleRelease(event)'>Phai</button>";
+    html += "<button onclick='sendCommand(\"/speed_down_left\")'>−</button>";
+    html += "<button onclick='sendCommand(\"/speed_up_left\")'>+</button>";
+    html += "</div>";
+    
+    html += "<div class='info-display'>";
+    html += "<div class='info-label'>Right Motor</div>";
+    html += "<div class='info-value'><span id='speedRight'>" + String(current_speed_right) + "</span>/" + String(MAX_SPEED) + " RPM</div>";
     html += "</div>";
     html += "<div class='control-row'>";
-    html += "<button type='button' onpointerdown='handlePress(\"/backward\", event)' onpointerup='handleRelease(event)' onpointercancel='handleRelease(event)' onpointerleave='handleRelease(event)'>Lui</button>";
+    html += "<button onclick='sendCommand(\"/speed_down_right\")'>−</button>";
+    html += "<button onclick='sendCommand(\"/speed_up_right\")'>+</button>";
     html += "</div>";
-    html += "<div class='control-row' style='flex-direction:column; align-items:center; width:100%;'>";
-    html += "<div style='color:#1abc9c; font-weight:bold;'>QTR Sensors</div>";
-    html += "<div id='qtrBox' style='font-family:monospace; color:#fff;'></div>";
-    html += "<div style='color:#f1c40f;'>Position: <span id='posVal'>0</span></div>";
+
+    // BOTH MOTORS SPEED CONTROL
+    html += "<div class='info-display'>";
+    html += "<div class='info-label'>Both Motors</div>";
+    html += "<div class='info-value'><span id='speedAvg'>" + String(current_speed) + "</span>/" + String(MAX_SPEED) + " RPM</div>";
     html += "</div>";
-    // Nút gắp vẫn dùng onclick để bấm một lần là đổi trạng thái
-    html += "<div class='control-row'><button type='button' class='gripper' onclick='sendCommand(\"/toggle_gripper\")'>GAP / NHA (SERVO)</button></div>";
-    html += "<div class='control-row' style='flex-direction:column; align-items:center; width:100%;'>";
-    html += "  <label style='width:100%; color:#f1c40f; font-weight:bold; margin-bottom:8px;'>Servo góc: <span id='servoAngle'>" + String(servoAngle) + "</span>°</label>";
-    html += "  <input id='servoSlider' type='range' min='0' max='80' step='1' value='" + String(servoAngle) + "' style='width:100%; margin-bottom:12px;' oninput='updateServo(this.value)' />";
+    html += "<div class='control-row'>";
+    html += "<button style='width: 140px;' onclick='sendCommand(\"/speed_down\")'>−− BOTH</button>";
+    html += "<button style='width: 140px;' onclick='sendCommand(\"/speed_up\")'>++ BOTH</button>";
     html += "</div>";
-    html += "<div class='control-row' style='flex-direction:column; align-items:center; width:100%; max-width:420px; margin-top:14px;'>";
-    html += "<div style='color:#1abc9c; font-weight:bold; margin-bottom:10px;'>Tune PID dò line</div>";
-    html += "<label style='width:100%; text-align:left;'><span style='float:left;'>Kp:</span><span id='kpValue' style='float:right;'>" + String(pidKp, 2) + "</span></label>";
-    html += "<input id='kpSlider' type='range' min='0' max='2' step='0.01' value='" + String(pidKp, 2) + "' style='width:100%;' oninput='updatePid(\"kp\", this.value)' />";
-    html += "<label style='width:100%; text-align:left; margin-top:8px;'><span style='float:left;'>Ki:</span><span id='kiValue' style='float:right;'>" + String(pidKi, 2) + "</span></label>";
-    html += "<input id='kiSlider' type='range' min='0' max='1' step='0.001' value='" + String(pidKi, 3) + "' style='width:100%;' oninput='updatePid(\"ki\", this.value)' />";
-    html += "<label style='width:100%; text-align:left; margin-top:8px;'><span style='float:left;'>Kd:</span><span id='kdValue' style='float:right;'>" + String(pidKd, 2) + "</span></label>";
-    html += "<input id='kdSlider' type='range' min='0' max='1' step='0.001' value='" + String(pidKd, 3) + "' style='width:100%;' oninput='updatePid(\"kd\", this.value)' />";
-    html += "<button type='button' style='margin-top:14px; width:100%;' onclick='toggleLineMode()'>BẬT/TẮT dò line</button>";
-    html += "<div style='margin-top:10px; color:#f1c40f;'>Trạng thái dò line: <span id=\"lineMode\">OFF</span></div>";
+
+    // QTR SENSORS
+    html += "<div class='section-title'>Line Sensors (QTR)</div>";
+    html += "<div class='info-display'>";
+    html += "<div id='qtrBox' style='font-family:monospace; color:#2ecc71; font-size:13px; line-height:1.6;'></div>";
     html += "</div>";
-    html += "<div class='control-row'><button type='button' class='stop' onclick='sendCommand(\"/turn_off_wifi\")'>TAT WIFI</button></div>";
-    // Script JS để lấy dữ liệu cảm biến mỗi 100ms
+    html += "<div class='info-display'>";
+    html += "<div class='info-label'>Position</div>";
+    html += "<div class='info-value'><span id='posVal'>0</span>/5000</div>";
+    html += "</div>";
+
+    // GRIPPER
+    html += "<div class='section-title'>Gripper</div>";
+    html += "<div class='control-row'><button type='button' class='gripper' onclick='sendCommand(\"/toggle_gripper\")'>🤖 OPEN/CLOSE</button></div>";
+
+    // SERVO
+    html += "<div class='section-title'>Servo Control</div>";
+    html += "<div class='pid-control'>";
+    html += "<div class='slider-label'><span class='slider-label-name'>Angle</span><span class='slider-value'><span id='servoAngle'>" + String(servoAngle) + "</span>°</span></div>";
+    html += "<input id='servoSlider' type='range' min='0' max='80' step='1' value='" + String(servoAngle) + "' oninput='updateServo(this.value)' />";
+    html += "</div>";
+
+    // PID TUNING
+    html += "<div class='section-title'>PID Line Follower</div>";
+    html += "<div class='pid-control'>";
+    html += "<div class='slider-label'><span class='slider-label-name'>Kp (Proportional)</span><span class='slider-value'><span id='kpValue'>" + String(pidKp, 3) + "</span></span></div>";
+    html += "<input id='kpSlider' type='range' min='0' max='1' step='0.001' value='" + String(pidKp, 3) + "' oninput='updatePid(\"kp\", this.value)' />";
+    html += "</div>";
+    html += "<div class='pid-control'>";
+    html += "<div class='slider-label'><span class='slider-label-name'>Ki (Integral)</span><span class='slider-value'><span id='kiValue'>" + String(pidKi, 4) + "</span></span></div>";
+    html += "<input id='kiSlider' type='range' min='0' max='0.2' step='0.001' value='" + String(pidKi, 4) + "' oninput='updatePid(\"ki\", this.value)' />";
+    html += "</div>";
+    html += "<div class='pid-control'>";
+    html += "<div class='slider-label'><span class='slider-label-name'>Kd (Derivative)</span><span class='slider-value'><span id='kdValue'>" + String(pidKd, 3) + "</span></span></div>";
+    html += "<input id='kdSlider' type='range' min='0' max='0.2' step='0.001' value='" + String(pidKd, 3) + "' oninput='updatePid(\"kd\", this.value)' />";
+    html += "</div>";
+    html += "<div class='info-display'>";
+    html += "<div class='info-label'>Line Mode Status</div>";
+    html += "<div class='info-value'><span id='lineMode'>OFF</span></div>";
+    html += "</div>";
+    html += "<div class='control-row'><button type='button' style='width:100%;' onclick='toggleLineMode()'>⚙ TOGGLE LINE MODE</button></div>";
+
+    // WIFI
+    html += "<div class='section-title'>System</div>";
+    html += "<div class='control-row'><button type='button' class='stop' style='width:100%;' onclick='sendCommand(\"/turn_off_wifi\")'>⊘ TURN OFF WiFi</button></div>";
+
+    // JAVASCRIPT
     html += "<script>";
     html += "function sendCommand(path) { fetch(path).catch(() => {}); }";
     html += "function updatePid(name, value) { value = parseFloat(value); if (isNaN(value)) return; fetch('/set_pid?' + name + '=' + value).catch(() => {});";
-    html += " if (name === 'kp') document.getElementById('kpValue').innerText = value.toFixed(2);";
-    html += " if (name === 'ki') document.getElementById('kiValue').innerText = value.toFixed(3);";
-    html += " if (name === 'kd') document.getElementById('kdValue').innerText = value.toFixed(3); }";
+    html += " if (name === 'kp') document.getElementById('kpValue').innerText = value.toFixed(5);";
+    html += " if (name === 'ki') document.getElementById('kiValue').innerText = value.toFixed(2);";
+    html += " if (name === 'kd') document.getElementById('kdValue').innerText = value.toFixed(5); }";
     html += "function toggleLineMode() { fetch('/toggle_line').catch(() => {}); }";
     html += "function handlePress(path, event) { event.preventDefault(); sendCommand(path); }";
     html += "function handleRelease(event) { event.preventDefault(); sendCommand('/stop'); }";
@@ -135,10 +201,10 @@ String getHTML()
     html += "    data.qtr.forEach((v, i) => { qtrHtml += 'S' + i + ': ' + v + (i === 2 ? '<br>' : (i === 5 ? '' : ' | ')); });";
     html += "    document.getElementById('qtrBox').innerHTML = qtrHtml;";
     html += "  }).catch(() => {});";
-    html += "}, 200);"; // Cập nhật mỗi 200ms
+    html += "}, 200);";
     html += "</script>";
 
-    html += "</center></div></body></html>";
+    html += "</div></body></html>";
     return html;
 }
 void disableWiFi()
@@ -175,6 +241,19 @@ void updateLineColorMode()
         }
     }
 }
+
+// Kiểm tra xem tất cả cảm biến có đều là 1000 không
+bool allSensorsAreMax()
+{
+    for (uint8_t i = 0; i < sensorCount; i++)
+    {
+        if (myQTR.getSensorValue(i) != 1000)
+        {
+            return false;
+        }
+    }
+    return true;
+}
 void followLine()
 {
     static unsigned long lastTime = 0;
@@ -187,6 +266,15 @@ void followLine()
     float dt = (currentTime - lastTime) / 1000.0;
 
     lastTime = currentTime;
+
+    // Kiểm tra xem đã 11 giây chưa, nếu có thì tăng tốc độ
+    if (!speedIncreased && (currentTime - lineFollowStartTime) >= 12000)
+    {
+        lineFollowSpeed = 90;
+        speedIncreased = true;
+        Serial.println("11 seconds elapsed: Line follow speed increased to 80");
+    }
+
     // 2. Lấy vị trí từ 6 cảm biến (phạm vi 0-5000, center = 2500)
     updateLineColorMode(); // Cập nhật trạng thái invertedLine trước
     uint16_t position = myQTR.getPosition(invertedLine); // Sử dụng trạng thái invertedLine mới nhất
@@ -220,31 +308,44 @@ void followLine()
     // mất line hoàn toàn
     if (lostLine)
     {
-
-        // chỉ đếm 1 lần cho mỗi lần mất line
-        if (!wasLostLine)
+        if (!afterLeftTurn)
         {
-            lostLineCount++;
-            wasLostLine = true;
+            // chỉ đếm 1 lần cho mỗi lần mất line
+            if (!wasLostLine)
+            {
+                lostLineCount++;
+                wasLostLine = true;
 
-            Serial.print("Lost Line Count: ");
-            Serial.println(lostLineCount);
-        }
+                Serial.print("Lost Line Count: ");
+                Serial.println(lostLineCount);
 
-        // tới lần thứ 3 mới rẽ trái
-        // if(lostLineCount =)
-        // {
-        //     controlMotor(90, -150);
-        //     delay(4);
-        //     return;
-        // }
-        if (lostLineCount == 2)
-        {
-            controlMotor(-60, 90);
-            delay(4);
+                // Nếu lần đầu tiên mất line mà tất cả cảm biến đều là 1000
+                if (allSensorsAreMax())
+                {
+                    Serial.println("All sensors max (1000) detected! Turning left lightly...");
+                    controlMotor(95, -50);  // Rẽ trái nhẹ
+                    delay(50);
+                    // Tiếp tục logic bình thường
+                }
+            }
 
-            firstLeftTurnDone = true; // Đánh dấu đã xong đoạn cua trái đầu tiên
-            return;
+            // tới lần thứ 3 mới rẽ trái
+            // if(lostLineCount == 1)
+            // {
+            //     controlMotor(60, -90);
+            //     delay(40);
+            //     return;
+            // }
+            if (lostLineCount == 1)
+            {
+                controlMotor(-60, 120);
+                delay(40);
+
+                firstLeftTurnDone = true; // Đánh dấu đã xong đoạn cua trái đầu tiên
+                afterLeftTurn = true;
+                leftTurnFinishTime = millis();
+                return;
+            }
         }
 
         position = lastValidPosition;
@@ -261,14 +362,14 @@ void followLine()
     // 3. Tính toán PID thẳng đều, không có xử lý cua gắt
     float correctionRaw = linePID.compute(position, dt);
     static float correctionFiltered = 0;
-    correctionFiltered = correctionFiltered * 0.65 + correctionRaw * 0.35;
+    correctionFiltered = correctionFiltered * 0.6 + correctionRaw * 0.4;
     int correction = (int)correctionFiltered;
 
     // Thêm offset để cân bằng motor (lệch trái thì motor phải yếu hơn)
     const int motorBalance = 3; // Tăng tốc độ motor phải thêm 3
 
-    int leftSpeed = current_speed + correction;
-    int rightSpeed = current_speed - correction + motorBalance;
+    int leftSpeed = lineFollowSpeed + correction;
+    int rightSpeed = lineFollowSpeed - correction + motorBalance;
 
     // Không quay lùi; chỉ cho phép điều chỉnh tốc độ hai bánh để giữ thẳng
     leftSpeed = constrain(leftSpeed, -80, 150);
@@ -336,6 +437,12 @@ void setup()
               {
 
     followLineMode = !followLineMode;
+    
+    if (followLineMode) {
+        // Bắt đầu dò line, reset timer
+        lineFollowStartTime = 0;
+        speedIncreased = false;
+    }
 
     if (!followLineMode) {
         stopMotor();
@@ -343,9 +450,21 @@ void setup()
         wasLostLine = false;
         firstLeftTurnDone = false; // Reset lại khi tắt/bật mode để có thể test lại
         specialForwardDone = false;
+        afterLeftTurn = false;
         lastValidPosition = 2500;
+        
+        // Reset biến tốc độ và timer
+        lineFollowSpeed = 50;  // Reset tốc độ về 50
+        speedIncreased = false;  // Reset biến tăng tốc độ
+        lineFollowStartTime = 0;  // Reset thời điểm bắt đầu
 
         linePID.reset(); // Reset PID khi tắt chế độ dò line để tránh tích tụ lỗi cũ khi bật lại
+    }
+    else if (lineFollowStartTime == 0)
+    {
+        // Khi bất đầu dò line, lưu thời điểm bắt đầu
+        lineFollowStartTime = millis();
+        Serial.println("Line follow mode started - timer begins");
     }
 
     Serial.print("Follow Line: ");
