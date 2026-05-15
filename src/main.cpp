@@ -43,9 +43,9 @@ const uint8_t qtrPins[] = {39, 34, 35, 33, 36, 32}; // 6 sensors D2-D7
 const uint8_t sensorCount = 6;
 
 // Khởi tạo PID cho dò line
-float pidKp = 0.585;
-float pidKi = 0.001;
-float pidKd = 0.08;
+float pidKp = 0.5;
+float pidKi = 0.003;
+float pidKd = 0.095;
 PID linePID(pidKp, pidKi, pidKd, -150, 150); // Kp, Ki, Kd
 bool followLineMode = false;
 bool invertedLine = false;
@@ -268,9 +268,9 @@ void followLine()
     lastTime = currentTime;
 
     // Kiểm tra xem đã 11 giây chưa, nếu có thì tăng tốc độ
-    if (!speedIncreased && (currentTime - lineFollowStartTime) >= 12000)
+    if (!speedIncreased && (currentTime - lineFollowStartTime) >= 15500)
     {
-        lineFollowSpeed = 90;
+        lineFollowSpeed = 80;
         speedIncreased = true;
         Serial.println("11 seconds elapsed: Line follow speed increased to 80");
     }
@@ -308,61 +308,38 @@ void followLine()
     // mất line hoàn toàn
     if (lostLine)
     {
-        if (!afterLeftTurn)
+        Serial.println("LOST LINE");
+
+        if (allSensorsAreMax())
         {
-            // chỉ đếm 1 lần cho mỗi lần mất line
-            if (!wasLostLine)
-            {
-                lostLineCount++;
-                wasLostLine = true;
-
-                Serial.print("Lost Line Count: ");
-                Serial.println(lostLineCount);
-
-                // Nếu lần đầu tiên mất line mà tất cả cảm biến đều là 1000
-                if (allSensorsAreMax())
-                {
-                    Serial.println("All sensors max (1000) detected! Turning left lightly...");
-                    controlMotor(95, -50);  // Rẽ trái nhẹ
-                    delay(50);
-                    // Tiếp tục logic bình thường
-                }
-            }
-
-            // tới lần thứ 3 mới rẽ trái
-            // if(lostLineCount == 1)
-            // {
-            //     controlMotor(60, -90);
-            //     delay(40);
-            //     return;
-            // }
-            if (lostLineCount == 1)
-            {
-                controlMotor(-60, 120);
-                delay(40);
-
-                firstLeftTurnDone = true; // Đánh dấu đã xong đoạn cua trái đầu tiên
-                afterLeftTurn = true;
-                leftTurnFinishTime = millis();
-                return;
-            }
+            Serial.println("ALL SENSORS MAX - TURN LEFT");
+            controlMotor(30, 130);
+            return;
         }
 
-        position = lastValidPosition;
+        if (lastValidPosition < 2500)
+        {
+            Serial.println("Searching LEFT");
+            controlMotor(-70, 120);
+        }
+        else
+        {
+            Serial.println("Searching RIGHT");
+            controlMotor(120, -70);
+        }
+
+        return;
     }
     else
     {
-
         wasLostLine = false;
-
         lastValidPosition = position;
-        
     }
 
     // 3. Tính toán PID thẳng đều, không có xử lý cua gắt
     float correctionRaw = linePID.compute(position, dt);
     static float correctionFiltered = 0;
-    correctionFiltered = correctionFiltered * 0.6 + correctionRaw * 0.4;
+    correctionFiltered = correctionFiltered * 0.70 + correctionRaw * 0.3;
     int correction = (int)correctionFiltered;
 
     // Thêm offset để cân bằng motor (lệch trái thì motor phải yếu hơn)
@@ -372,8 +349,8 @@ void followLine()
     int rightSpeed = lineFollowSpeed - correction + motorBalance;
 
     // Không quay lùi; chỉ cho phép điều chỉnh tốc độ hai bánh để giữ thẳng
-    leftSpeed = constrain(leftSpeed, -80, 150);
-    rightSpeed = constrain(rightSpeed, -80, 150);
+    leftSpeed = constrain(leftSpeed, 0, 150);
+    rightSpeed = constrain(rightSpeed, 0, 150);
 
     controlMotor(leftSpeed, rightSpeed);
 
